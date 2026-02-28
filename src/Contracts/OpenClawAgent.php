@@ -24,4 +24,14 @@ interface OpenClawAgent
      * Returns null if no specific model is configured.
      */
     public function getAgentModel(): ?string;
+
+    /**
+     * Update awake status based on session age from health check.
+     */
+    public function updateAwakeStatus(int $sessionAgeMs): void;
+
+    /**
+     * Mark the agent as sleeping (no active session).
+     */
+    public function markAsSleeping(): void;
 }

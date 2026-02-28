@@ -19,7 +19,7 @@ use Illuminate\Support\Facades\Log;
  * This command queries the gateway health status for all agents and updates their
  * status fields consistently. It does NOT reset rate limits or wake agents.
  */
-final class CheckAgentStatusCommand extends Command
+class CheckAgentStatusCommand extends Command
 {
     /**
      * @var string
@@ -57,8 +57,9 @@ final class CheckAgentStatusCommand extends Command
 
         $agentModelClass::with($gatewayRelation)
             ->whereHas($gatewayRelation, fn (\Illuminate\Contracts\Database\Query\Builder $q) => $q->whereNotNull('gateway_url'))
-            ->chunkById(100, function (Collection $agents) use ($gatewayRelation, &$totalAgents, &$statusUpdated, &$statusMarkedSleeping): void {
-                $this->processAgentChunk($agents, $gatewayRelation, $totalAgents, $statusUpdated, $statusMarkedSleeping);
+            ->chunkById(100, function (Collection $chunk) use ($gatewayRelation, &$totalAgents, &$statusUpdated, &$statusMarkedSleeping): void {
+                /** @var Collection<int, Model&OpenClawAgent> $chunk */
+                $this->processAgentChunk($chunk, $gatewayRelation, $totalAgents, $statusUpdated, $statusMarkedSleeping);
             });
 
         $this->info(sprintf(

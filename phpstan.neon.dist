@@ -1,8 +1,12 @@
-includes:
-    - vendor/larastan/larastan/extension.neon
-
 parameters:
     paths:
         - src
         - config
     level: 5
+    ignoreErrors:
+        -
+            identifier: larastan.noEnvCallsOutsideOfConfig
+            path: config/*
+        -
+            identifier: trait.unused
+            path: src/Concerns/*
