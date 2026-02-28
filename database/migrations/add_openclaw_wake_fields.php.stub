@@ -1,0 +1,53 @@
+<?php
+
+declare(strict_types=1);
+
+use Illuminate\Database\Migrations\Migration;
+use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Support\Facades\Schema;
+
+return new class extends Migration
+{
+    /**
+     * Add OpenClaw wake management fields to the agents table.
+     *
+     * These fields support the HasWakeManagement trait.
+     */
+    public function up(): void
+    {
+        Schema::table('agents', function (Blueprint $table): void {
+            $table->boolean('is_awake')->default(false)->after('model');
+            $table->unsignedInteger('session_age_ms')->nullable()->after('is_awake');
+            $table->timestamp('last_status_check_at')->nullable()->after('session_age_ms');
+            $table->timestamp('last_wake_at')->nullable()->after('last_status_check_at');
+            $table->boolean('wake_enabled')->default(true)->after('last_wake_at');
+            $table->unsignedInteger('wake_interval_seconds')->default(120)->after('wake_enabled');
+            $table->unsignedInteger('wake_count_minute')->default(0)->after('wake_interval_seconds');
+            $table->unsignedInteger('consecutive_failures')->default(0)->after('wake_count_minute');
+            $table->timestamp('backoff_until')->nullable()->after('consecutive_failures');
+            $table->unsignedInteger('wake_count')->default(0)->after('backoff_until');
+            $table->unsignedInteger('wake_count_today')->default(0)->after('wake_count');
+            $table->date('wake_count_today_date')->nullable()->after('wake_count_today');
+        });
+    }
+
+    public function down(): void
+    {
+        Schema::table('agents', function (Blueprint $table): void {
+            $table->dropColumn([
+                'is_awake',
+                'session_age_ms',
+                'last_status_check_at',
+                'last_wake_at',
+                'wake_enabled',
+                'wake_interval_seconds',
+                'wake_count_minute',
+                'consecutive_failures',
+                'backoff_until',
+                'wake_count',
+                'wake_count_today',
+                'wake_count_today_date',
+            ]);
+        });
+    }
+};

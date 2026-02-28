@@ -1,0 +1,11 @@
+/vendor
+/node_modules
+.phpunit.result.cache
+.phpunit.cache
+build
+composer.lock
+coverage
+phpstan.neon
+.idea
+.vscode
+.php-cs-fixer.cache

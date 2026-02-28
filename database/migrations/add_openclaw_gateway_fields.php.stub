@@ -1,0 +1,31 @@
+<?php
+
+declare(strict_types=1);
+
+use Illuminate\Database\Migrations\Migration;
+use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Support\Facades\Schema;
+
+return new class extends Migration
+{
+    /**
+     * Add OpenClaw gateway connection fields to the instances table.
+     *
+     * These fields support the HasGatewayConnection trait.
+     */
+    public function up(): void
+    {
+        Schema::table('instances', function (Blueprint $table): void {
+            $table->string('gateway_url')->nullable()->after('host');
+            $table->string('gateway_token')->nullable()->after('gateway_url');
+            $table->string('gateway_auth_token')->nullable()->after('gateway_token');
+        });
+    }
+
+    public function down(): void
+    {
+        Schema::table('instances', function (Blueprint $table): void {
+            $table->dropColumn(['gateway_url', 'gateway_token', 'gateway_auth_token']);
+        });
+    }
+};
