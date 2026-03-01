@@ -124,6 +124,122 @@ describe('CheckAgentStatusCommand', function (): void {
             ->and($agent->session_age_ms)->toBeNull();
     });
 
+    it('marks agent as sleeping when age is null', function (): void {
+        $gateway = TestGateway::create([
+            'name' => 'test-instance',
+            'gateway_url' => 'wss://openclaw.test',
+            'gateway_auth_token' => 'test-token',
+        ]);
+
+        $agent = TestCmdAgent::create([
+            'test_gateway_id' => $gateway->id,
+            'agent_id' => 'bear',
+            'name' => 'Bear',
+            'model' => 'claude-sonnet-4',
+            'is_awake' => true,
+        ]);
+
+        $this->app->bind(GatewayHealthClient::class, function () {
+            return new class implements GatewayHealthClient
+            {
+                public function getHealthStatus(string $gatewayUrl, string $gatewayToken): ?array
+                {
+                    return [
+                        'bear' => ['age' => null, 'awake' => false],
+                    ];
+                }
+            };
+        });
+
+        $this->artisan('openclaw:check-status')
+            ->assertSuccessful();
+
+        $agent->refresh();
+        expect($agent->is_awake)->toBeFalse()
+            ->and($agent->last_seen_at)->not->toBeNull();
+    });
+
+    it('skips agents with empty gateway URL', function (): void {
+        $gateway = TestGateway::create([
+            'name' => 'test-instance',
+            'gateway_url' => '',
+            'gateway_auth_token' => 'test-token',
+        ]);
+
+        TestCmdAgent::create([
+            'test_gateway_id' => $gateway->id,
+            'agent_id' => 'bear',
+            'name' => 'Bear',
+        ]);
+
+        $called = false;
+        $this->app->bind(GatewayHealthClient::class, function () use (&$called) {
+            return new class($called) implements GatewayHealthClient
+            {
+                public function __construct(private bool &$called) {}
+
+                public function getHealthStatus(string $gatewayUrl, string $gatewayToken): ?array
+                {
+                    $this->called = true;
+
+                    return [];
+                }
+            };
+        });
+
+        $this->artisan('openclaw:check-status')
+            ->assertSuccessful();
+
+        expect($called)->toBeFalse();
+    });
+
+    it('groups gateways by URL and token', function (): void {
+        $gateway1 = TestGateway::create([
+            'name' => 'instance-1',
+            'gateway_url' => 'wss://openclaw.test',
+            'gateway_auth_token' => 'token-a',
+        ]);
+
+        $gateway2 = TestGateway::create([
+            'name' => 'instance-2',
+            'gateway_url' => 'wss://openclaw.test',
+            'gateway_auth_token' => 'token-b',
+        ]);
+
+        TestCmdAgent::create([
+            'test_gateway_id' => $gateway1->id,
+            'agent_id' => 'agent-1',
+            'name' => 'Agent 1',
+        ]);
+
+        TestCmdAgent::create([
+            'test_gateway_id' => $gateway2->id,
+            'agent_id' => 'agent-2',
+            'name' => 'Agent 2',
+        ]);
+
+        $callCount = 0;
+        $this->app->bind(GatewayHealthClient::class, function () use (&$callCount) {
+            return new class($callCount) implements GatewayHealthClient
+            {
+                public function __construct(private int &$callCount) {}
+
+                public function getHealthStatus(string $gatewayUrl, string $gatewayToken): ?array
+                {
+                    $this->callCount++;
+
+                    return [];
+                }
+            };
+        });
+
+        $this->artisan('openclaw:check-status')
+            ->assertSuccessful();
+
+        // Two separate health checks because tokens differ
+        expect($callCount)->toBe(2);
+    });
+
     it('marks agents as sleeping when health check fails', function (): void {
         $gateway = TestGateway::create([
             'name' => 'test-instance',

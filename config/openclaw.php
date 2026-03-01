@@ -13,10 +13,7 @@ return [
     | for HTTPS wake requests.
     |
     */
-    'gateway_ca_bundle' => env(
-        'OPENCLAW_GATEWAY_CA_BUNDLE',
-        (getenv('HOME') ?: '/home/nckrtl').'/.config/certs/caddy-cas.pem'
-    ),
+    'gateway_ca_bundle' => env('OPENCLAW_GATEWAY_CA_BUNDLE'),
 
     /*
     |--------------------------------------------------------------------------

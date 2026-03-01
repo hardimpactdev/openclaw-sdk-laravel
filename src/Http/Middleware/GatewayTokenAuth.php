@@ -34,17 +34,25 @@ final class GatewayTokenAuth
             ], 400);
         }
 
-        /** @var class-string<Model&OpenClawGateway>|null $gatewayModelClass */
-        $gatewayModelClass = Config::get('openclaw.gateway_model');
+        if ($identifier instanceof Model && $identifier instanceof OpenClawGateway) {
+            $gateway = $identifier;
+        } elseif (is_scalar($identifier)) {
+            /** @var class-string<Model&OpenClawGateway>|null $gatewayModelClass */
+            $gatewayModelClass = Config::get('openclaw.gateway_model');
 
-        if ($gatewayModelClass === null) {
+            if ($gatewayModelClass === null) {
+                return response()->json([
+                    'error' => 'Gateway model not configured.',
+                ], 500);
+            }
+
+            /** @var (Model&OpenClawGateway)|null $gateway */
+            $gateway = $gatewayModelClass::query()->where($routeParam, $identifier)->first();
+        } else {
             return response()->json([
-                'error' => 'Gateway model not configured.',
-            ], 500);
+                'error' => 'Invalid gateway identifier.',
+            ], 400);
         }
-
-        /** @var (Model&OpenClawGateway)|null $gateway */
-        $gateway = $gatewayModelClass::query()->where('name', $identifier)->first();
 
         if ($gateway === null) {
             return response()->json([

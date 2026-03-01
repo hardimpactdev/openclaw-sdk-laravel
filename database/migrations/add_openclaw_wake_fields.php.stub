@@ -19,6 +19,7 @@ return new class extends Migration
             $table->boolean('is_awake')->default(false)->after('model');
             $table->unsignedInteger('session_age_ms')->nullable()->after('is_awake');
             $table->timestamp('last_status_check_at')->nullable()->after('session_age_ms');
+            $table->timestamp('last_seen_at')->nullable()->after('last_status_check_at');
             $table->timestamp('last_wake_at')->nullable()->after('last_status_check_at');
             $table->boolean('wake_enabled')->default(true)->after('last_wake_at');
             $table->unsignedInteger('wake_interval_seconds')->default(120)->after('wake_enabled');
@@ -38,6 +39,7 @@ return new class extends Migration
                 'is_awake',
                 'session_age_ms',
                 'last_status_check_at',
+                'last_seen_at',
                 'last_wake_at',
                 'wake_enabled',
                 'wake_interval_seconds',

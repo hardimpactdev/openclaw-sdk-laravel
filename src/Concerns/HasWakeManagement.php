@@ -7,6 +7,7 @@ namespace HardImpact\OpenClaw\Concerns;
 use Carbon\Carbon;
 use Illuminate\Support\Facades\Config;
 use Illuminate\Support\Facades\Date;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 
 /**
@@ -55,9 +56,9 @@ trait HasWakeManagement
         /** @var Carbon|null $lastWakeAt */
         $lastWakeAt = $this->last_wake_at;
 
-        if ($lastWakeAt !== null && $lastWakeAt->diffInMinutes(now()) >= 1) {
-            $this->wake_count_minute = 0;
-        }
+        $effectiveMinuteCount = ($lastWakeAt !== null && $lastWakeAt->diffInMinutes(now(), false) >= 1)
+            ? 0
+            : $this->wake_count_minute;
 
         $model = $this->getAgentModel();
         /** @var array<string, int> $modelLimits */
@@ -66,7 +67,7 @@ trait HasWakeManagement
         $defaultRpm = Config::get('openclaw.rate_limits.default_rpm', 50);
         $limit = $modelLimits[$model ?? ''] ?? $defaultRpm;
 
-        if ($this->wake_count_minute >= $limit) {
+        if ($effectiveMinuteCount >= $limit) {
             return false;
         }
 
@@ -75,7 +76,7 @@ trait HasWakeManagement
         }
 
         if ($lastWakeAt !== null) {
-            $secondsSinceLastWake = $lastWakeAt->diffInSeconds(now());
+            $secondsSinceLastWake = (int) $lastWakeAt->diffInSeconds(now(), false);
 
             return $secondsSinceLastWake >= $this->wake_interval_seconds;
         }
@@ -99,14 +100,33 @@ trait HasWakeManagement
         /** @var Carbon|null $lastWakeAt */
         $lastWakeAt = $this->last_wake_at;
 
+        $waits = [];
+
         if ($lastWakeAt !== null) {
+            // Check RPM limit
+            $effectiveMinuteCount = ($lastWakeAt->diffInMinutes(now(), false) >= 1)
+                ? 0
+                : $this->wake_count_minute;
+
+            $model = $this->getAgentModel();
+            /** @var array<string, int> $modelLimits */
+            $modelLimits = Config::get('openclaw.rate_limits.model_limits', []);
+            /** @var int $defaultRpm */
+            $defaultRpm = Config::get('openclaw.rate_limits.default_rpm', 50);
+            $limit = $modelLimits[$model ?? ''] ?? $defaultRpm;
+
+            if ($effectiveMinuteCount >= $limit) {
+                $secondsSinceLastWake = (int) $lastWakeAt->diffInSeconds(now(), false);
+                $waits[] = max(0, 60 - $secondsSinceLastWake);
+            }
+
+            // Check interval
             $secondsSinceLastWake = (int) $lastWakeAt->diffInSeconds(now(), false);
             $remaining = $this->wake_interval_seconds - $secondsSinceLastWake;
-
-            return max(0, $remaining);
+            $waits[] = max(0, $remaining);
         }
 
-        return 0;
+        return $waits !== [] ? max($waits) : 0;
     }
 
     /**
@@ -117,28 +137,24 @@ trait HasWakeManagement
         /** @var Carbon|null $lastWakeAt */
         $lastWakeAt = $this->last_wake_at;
 
-        if ($lastWakeAt !== null && $lastWakeAt->diffInMinutes(now()) >= 1) {
-            $this->wake_count_minute = 0;
-        }
+        $minuteHasElapsed = $lastWakeAt !== null && $lastWakeAt->diffInMinutes(now(), false) >= 1;
 
         /** @var Carbon|null $wakeCountTodayDate */
         $wakeCountTodayDate = $this->wake_count_today_date;
 
         $isToday = $wakeCountTodayDate !== null && $wakeCountTodayDate->isToday();
 
-        $wakeCountToday = $isToday
-            ? $this->wake_count_today + 1
-            : 1;
-
-        $this->update([
-            'last_wake_at' => now(),
-            'wake_count_minute' => $this->wake_count_minute + 1,
-            'consecutive_failures' => 0,
-            'backoff_until' => null,
-            'wake_count' => $this->wake_count + 1,
-            'wake_count_today' => $wakeCountToday,
-            'wake_count_today_date' => now(),
-        ]);
+        $this->newModelQuery()
+            ->where($this->getKeyName(), $this->getKey())
+            ->update([
+                'last_wake_at' => now(),
+                'wake_count_minute' => $minuteHasElapsed ? 1 : DB::raw('wake_count_minute + 1'),
+                'consecutive_failures' => 0,
+                'backoff_until' => null,
+                'wake_count' => DB::raw('wake_count + 1'),
+                'wake_count_today' => $isToday ? DB::raw('wake_count_today + 1') : 1,
+                'wake_count_today_date' => now(),
+            ]);
     }
 
     /**
@@ -149,7 +165,7 @@ trait HasWakeManagement
         /** @var int $maxBackoff */
         $maxBackoff = Config::get('openclaw.rate_limits.max_backoff_seconds', 600);
         /** @var int $baseBackoff */
-        $baseBackoff = Config::get('openclaw.rate_limits.base_backoff_seconds', 120);
+        $baseBackoff = max(1, (int) Config::get('openclaw.rate_limits.base_backoff_seconds', 120));
 
         $failures = $this->consecutive_failures + 1;
 
@@ -161,10 +177,12 @@ trait HasWakeManagement
 
         $backoffSeconds = min($maxBackoff, max(0, $backoffSeconds));
 
-        $this->update([
-            'consecutive_failures' => $failures,
-            'backoff_until' => Date::now()->addSeconds($backoffSeconds),
-        ]);
+        $this->newModelQuery()
+            ->where($this->getKeyName(), $this->getKey())
+            ->update([
+                'consecutive_failures' => DB::raw('consecutive_failures + 1'),
+                'backoff_until' => Date::now()->addSeconds($backoffSeconds),
+            ]);
     }
 
     /**
@@ -174,26 +192,21 @@ trait HasWakeManagement
     {
         /** @var int $maxBackoff */
         $maxBackoff = Config::get('openclaw.rate_limits.max_backoff_seconds', 600);
-        /** @var int $baseBackoff */
-        $baseBackoff = Config::get('openclaw.rate_limits.base_backoff_seconds', 120);
 
-        $failures = $this->consecutive_failures + 1;
+        $backoffSeconds = min($maxBackoff, max(0, $retryAfterSeconds));
 
-        $backoffSeconds = max(
-            $baseBackoff,
-            min($maxBackoff, $retryAfterSeconds)
-        );
-
-        $this->update([
-            'consecutive_failures' => $failures,
-            'backoff_until' => Date::now()->addSeconds($backoffSeconds),
-        ]);
+        $this->newModelQuery()
+            ->where($this->getKeyName(), $this->getKey())
+            ->update([
+                'consecutive_failures' => DB::raw('consecutive_failures + 1'),
+                'backoff_until' => Date::now()->addSeconds($backoffSeconds),
+            ]);
 
         Log::info('Agent rate limited by server', [
             'agent' => $this->getAgentDisplayName(),
             'retry_after' => $retryAfterSeconds,
             'applied_backoff' => $backoffSeconds,
-            'consecutive_failures' => $failures,
+            'consecutive_failures' => $this->consecutive_failures,
         ]);
     }
 

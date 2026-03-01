@@ -34,10 +34,14 @@ final readonly class GatewayWakeClient
             /** @var int $timeout */
             $timeout = Config::get('openclaw.wake.http_timeout', 10);
 
-            $request = Http::timeout($timeout)
-                ->withOptions([
-                    'verify' => Config::get('openclaw.gateway_ca_bundle'),
-                ]);
+            $options = ['timeout' => $timeout];
+            $ca = Config::get('openclaw.gateway_ca_bundle');
+
+            if ($ca !== null) {
+                $options['verify'] = $ca;
+            }
+
+            $request = Http::withOptions($options);
 
             $gatewayToken = mb_trim($gateway->getGatewayToken() ?? '');
             if ($gatewayToken !== '') {

@@ -88,6 +88,27 @@ describe('canWake', function (): void {
 
         expect($agent->canWake())->toBeTrue();
     });
+
+    it('does not mutate wake_count_minute as a side effect', function (): void {
+        $agent = createTestAgent([
+            'last_wake_at' => now()->subMinutes(2),
+            'wake_count_minute' => 10,
+        ]);
+
+        $agent->canWake();
+
+        // In-memory value should not be mutated
+        expect($agent->wake_count_minute)->toBe(10);
+    });
+
+    it('handles future last_wake_at with signed diff', function (): void {
+        $agent = createTestAgent([
+            'last_wake_at' => now()->addSeconds(60),
+            'wake_interval_seconds' => 120,
+        ]);
+
+        expect($agent->canWake())->toBeFalse();
+    });
 });
 
 describe('recordWakeSuccess', function (): void {
@@ -156,6 +177,18 @@ describe('recordWakeFailure', function (): void {
         expect($backoffSeconds)->toBeGreaterThanOrEqual(470)
             ->and($backoffSeconds)->toBeLessThanOrEqual(490);
     });
+
+    it('handles zero base backoff without division by zero', function (): void {
+        config()->set('openclaw.rate_limits.base_backoff_seconds', 0);
+
+        $agent = createTestAgent();
+
+        $agent->recordWakeFailure();
+        $agent->refresh();
+
+        expect($agent->consecutive_failures)->toBe(1)
+            ->and($agent->backoff_until)->not->toBeNull();
+    });
 });
 
 describe('recordRateLimitResponse', function (): void {
@@ -179,6 +212,17 @@ describe('recordRateLimitResponse', function (): void {
 
         $backoff = $agent->getCurrentBackoffSeconds();
         expect($backoff)->toBeLessThanOrEqual(610);
+    });
+
+    it('respects short retry-after without clamping to base', function (): void {
+        $agent = createTestAgent();
+
+        $agent->recordRateLimitResponse(5);
+        $agent->refresh();
+
+        $backoff = $agent->getCurrentBackoffSeconds();
+        expect($backoff)->toBeLessThanOrEqual(10)
+            ->and($backoff)->toBeGreaterThanOrEqual(0);
     });
 });
 
@@ -242,6 +286,22 @@ describe('secondsUntilCanWake', function (): void {
         $remaining = $agent->secondsUntilCanWake();
         expect($remaining)->toBeGreaterThanOrEqual(95)
             ->and($remaining)->toBeLessThanOrEqual(105);
+    });
+
+    it('returns RPM wait time when rate limited', function (): void {
+        config()->set('openclaw.rate_limits.default_rpm', 5);
+        config()->set('openclaw.rate_limits.model_limits', []);
+
+        $agent = createTestAgent([
+            'last_wake_at' => now()->subSeconds(10),
+            'wake_count_minute' => 5,
+            'wake_interval_seconds' => 0,
+        ]);
+
+        $remaining = $agent->secondsUntilCanWake();
+        // Should wait for the minute window to pass: 60 - 10 = 50s
+        expect($remaining)->toBeGreaterThanOrEqual(45)
+            ->and($remaining)->toBeLessThanOrEqual(55);
     });
 });
 

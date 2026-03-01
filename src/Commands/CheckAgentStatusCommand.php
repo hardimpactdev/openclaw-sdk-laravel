@@ -56,7 +56,7 @@ class CheckAgentStatusCommand extends Command
         $statusMarkedSleeping = 0;
 
         $agentModelClass::with($gatewayRelation)
-            ->whereHas($gatewayRelation, fn (\Illuminate\Contracts\Database\Query\Builder $q) => $q->whereNotNull('gateway_url'))
+            ->whereHas($gatewayRelation, fn (\Illuminate\Contracts\Database\Query\Builder $q) => $q->whereNotNull('gateway_url')->where('gateway_url', '!=', ''))
             ->chunkById(100, function (Collection $chunk) use ($gatewayRelation, &$totalAgents, &$statusUpdated, &$statusMarkedSleeping): void {
                 /** @var Collection<int, Model&OpenClawAgent> $chunk */
                 $this->processAgentChunk($chunk, $gatewayRelation, $totalAgents, $statusUpdated, $statusMarkedSleeping);
@@ -86,7 +86,9 @@ class CheckAgentStatusCommand extends Command
 
         /** @var Collection<int, Model&OpenClawGateway> $uniqueGateways */
         $uniqueGateways = $agents->pluck($gatewayRelation)->unique('id');
-        $gatewaysByUrl = $uniqueGateways->groupBy(fn (Model&OpenClawGateway $g): ?string => $g->getGatewayUrl());
+        $gatewaysByKey = $uniqueGateways->groupBy(
+            fn (Model&OpenClawGateway $g): string => $g->getGatewayUrl().'|'.$g->getGatewayAuthToken()
+        );
 
         /** @var array<int, array<string, Model&OpenClawAgent>> $agentsByGateway */
         $agentsByGateway = [];
@@ -98,16 +100,17 @@ class CheckAgentStatusCommand extends Command
             $agentsByGateway[$gatewayId][$agent->getAgentIdentifier()] = $agent;
         }
 
-        foreach ($gatewaysByUrl as $gatewayUrl => $gateways) {
-            /** @var string|null $gatewayUrl */
+        foreach ($gatewaysByKey as $gateways) {
             /** @var Collection<int, Model&OpenClawGateway> $gateways */
-            if (empty($gatewayUrl)) {
-                continue;
-            }
 
             /** @var Model&OpenClawGateway $firstGateway */
             $firstGateway = $gateways->first();
+            $gatewayUrl = $firstGateway->getGatewayUrl();
             $gatewayToken = mb_trim($firstGateway->getGatewayAuthToken() ?? '');
+
+            if (empty($gatewayUrl)) {
+                continue;
+            }
 
             if ($gatewayToken === '') {
                 Log::warning('CheckAgentStatus: No gateway auth token for health check', [
@@ -154,7 +157,13 @@ class CheckAgentStatusCommand extends Command
 
                     if (isset($healthStatus[$agentId])) {
                         $agentData = $healthStatus[$agentId];
-                        $agent->updateAwakeStatus($agentData['age'] ?? 0);
+
+                        if ($agentData['awake'] && $agentData['age'] !== null) {
+                            $agent->updateAwakeStatus($agentData['age']);
+                        } else {
+                            $agent->markAsSleeping();
+                        }
+
                         $agent->update(['last_seen_at' => now()]);
                         $statusUpdated++;
                     } else {

@@ -37,6 +37,16 @@ describe('GatewayWebSocketClient', function (): void {
             expect(GatewayWebSocketClient::wssToHttps('https://openclaw.bear'))
                 ->toBe('https://openclaw.bear');
         });
+
+        it('converts ws:// to http://', function (): void {
+            expect(GatewayWebSocketClient::wssToHttps('ws://openclaw.bear'))
+                ->toBe('http://openclaw.bear');
+        });
+
+        it('converts ws:// to http:// with path', function (): void {
+            expect(GatewayWebSocketClient::wssToHttps('ws://openclaw.bear/ws'))
+                ->toBe('http://openclaw.bear/ws');
+        });
     });
 
     describe('getHealthStatus', function (): void {

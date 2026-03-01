@@ -11,6 +11,10 @@ use Illuminate\Foundation\Events\Dispatchable;
 
 /**
  * Event fired when a wake attempt fails.
+ *
+ * This event is provided as a data structure for consumers to dispatch
+ * from their own wake orchestration logic. The SDK does not dispatch it
+ * automatically — use AgentWakeFailed::dispatch() after a failed wake call.
  */
 final class AgentWakeFailed
 {

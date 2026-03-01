@@ -63,7 +63,7 @@ final readonly class GatewayWebSocketClient implements GatewayHealthClient
      */
     public static function wssToHttps(string $wssUrl): string
     {
-        return str_replace('wss://', 'https://', $wssUrl);
+        return str_replace(['wss://', 'ws://'], ['https://', 'http://'], $wssUrl);
     }
 
     /**
@@ -114,14 +114,18 @@ final readonly class GatewayWebSocketClient implements GatewayHealthClient
      */
     private function createConnector(string $gatewayUrl): Rfc6455Connector
     {
-        /** @var string $caBundlePath */
+        /** @var string|null $caBundlePath */
         $caBundlePath = Config::get('openclaw.gateway_ca_bundle');
 
         $peerName = self::peerNameFromGatewayUrl($gatewayUrl);
 
-        $tlsContext = (new ClientTlsContext($peerName))
-            ->withCaFile($caBundlePath)
-            ->withPeerVerification();
+        $tlsContext = new ClientTlsContext($peerName);
+
+        if ($caBundlePath !== null) {
+            $tlsContext = $tlsContext->withCaFile($caBundlePath);
+        }
+
+        $tlsContext = $tlsContext->withPeerVerification();
 
         $connectContext = (new ConnectContext)
             ->withTcpNoDelay()
